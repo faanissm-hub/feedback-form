@@ -2,9 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // LANGKAH 5: gantikan UID_ANDA dengan User UID akaun owner dari Firebase Authentication.
     function isOwner() {
-      return request.auth != null && request.auth.uid == "UID_ANDA";
+      return request.auth != null && request.auth.uid == "cduU6fFyckeFh0MCo3dt34CvLow2";
     }
 
     function validRating(v) {
