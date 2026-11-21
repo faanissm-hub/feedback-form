@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Admin - Maklum Balas Pelanggan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <!-- LOG MASUK -->
+  <section class="panel login" id="login">
+    <h1 style="font-size:22px">Log masuk Owner</h1>
+    <p class="hint">Halaman ini untuk pemilik sahaja.</p>
+    <form id="login-form" class="grid" style="grid-template-columns:minmax(0,1fr)">
+      <label class="f" for="l-email">E-mel<input id="l-email" type="email" autocomplete="username" required></label>
+      <label class="f" for="l-pass">Kata laluan<input id="l-pass" type="password" autocomplete="current-password" required></label>
+      <div><button class="primary" id="l-btn" type="submit">Log masuk</button></div>
+    </form>
+    <div id="l-msg" role="status"></div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <div id="app" hidden>
+    <header class="top">
+      <div>
+        <div class="label-up">Customer Complaint &amp; Satisfaction KPI</div>
+        <h1>Maklum Balas Pelanggan</h1>
+        <p class="sub" id="who"></p>
+      </div>
+      <div class="actions" style="margin:0">
+        <button id="csv" type="button">Muat turun CSV</button>
+        <button id="logout" type="button">Log keluar</button>
+      </div>
+    </header>
+    <div id="kpi"></div>
+    <div class="filters" id="filters" role="group" aria-label="Tapis"></div>
+    <div id="list"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const LABELS = { 5: "Sangat Berpuas Hati", 4: "Berpuas Hati", 3: "Neutral", 2: "Tidak Berpuas Hati", 1: "Sangat Tidak Berpuas Hati" };
+const CRIT = [["rQuality", "Kualiti Produk / Perkhidmatan"], ["rFriendliness", "Kemesraan Kakitangan"], ["rProfessionalism", "Profesionalisme Kakitangan"],
+  ["rResponse", "Masa Respons"], ["rResolution", "Penyelesaian Masalah"], ["rOverall", "Kepuasan Keseluruhan"]];
+const CATS = { quality: "Kualiti Produk / Perkhidmatan", staff: "Layanan Kakitangan", response: "Masa Respons", resolution: "Penyelesaian Masalah", invoice: "Invois / Bil", other: "Lain-lain" };
+const STATUSES = ["Open", "In Progress", "Closed"];
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+const fmtDate = (s) => { if (!s) return "-"; const p = s.split("-"); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s; };
+const tone = (n) => (n >= 4 ? "good" : n >= 3 ? "warn" : "bad");
+const stTone = (s) => (s === "Closed" ? "good" : s === "In Progress" ? "warn" : "bad");
+const statusOf = (r) => (r.hasComplaint ? r.status || "Open" : "");
+
+if (String(firebaseConfig.apiKey).startsWith("ISI_")) {
+  $("#l-msg").innerHTML = '<div class="msg err">Sila isi firebase-config.js dahulu (Langkah 3).</div>';
+  $("#l-btn").disabled = true;
+}
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+let rows = [], filter = "all", openId = null, pending = false, unsub = null;
+
+/* ---------- Log masuk ---------- */
+$("#login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const b = $("#l-btn"); b.disabled = true; b.textContent = "Sedang log masuk...";
+  try { await signInWithEmailAndPassword(auth, $("#l-email").value.trim(), $("#l-pass").value); $("#l-msg").innerHTML = ""; }
+  catch (err) { $("#l-msg").innerHTML = '<div class="msg err">E-mel atau kata laluan tidak betul.</div>'; }
+  b.disabled = false; b.textContent = "Log masuk";
+});
+$("#logout").addEventListener("click", () => signOut(auth));
+
+onAuthStateChanged(auth, (user) => {
+  if (unsub) { unsub(); unsub = null; }
+  $("#login").hidden = !!user; $("#app").hidden = !user;
+  if (!user) { rows = []; return; }
+  $("#who").textContent = "Log masuk sebagai " + user.email;
+  unsub = onSnapshot(query(collection(db, "feedback"), orderBy("createdAt", "desc")), (snap) => {
+    rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    render();
+  }, () => {
+    $("#list").innerHTML = '<div class="msg err">Akaun ini tidak dibenarkan melihat data. Semak UID dalam firestore.rules (Langkah 5).</div>';
+  });
+});
+
+/* ---------- Paparan ---------- */
+const complaints = () => rows.filter((r) => r.hasComplaint);
+const avg = (k) => { const n = rows.filter((r) => r[k]); return n.length ? n.reduce((a, r) => a + r[k], 0) / n.length : 0; };
+const created = (r) => (r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : null);
+
+function renderKpi() {
+  if (!rows.length) { $("#kpi").innerHTML = ""; return; }
+  const sat = rows.filter((r) => r.rOverall >= 4).length / rows.length * 100;
+  const comp = complaints(), open = comp.filter((r) => statusOf(r) !== "Closed").length;
+  const late = comp.filter((r) => statusOf(r) !== "Closed" && r.targetDate && r.targetDate < today()).length;
+  const tile = (l, n) => `<div class="tile"><div class="label-up">${l}</div><div class="n">${n}</div></div>`;
+  let h = '<div class="tiles">' + tile("Jumlah maklum balas", rows.length) + tile("Purata keseluruhan", avg("rOverall").toFixed(2) + " <small>/ 5</small>") +
+    tile("Kadar kepuasan (skor 4-5)", sat.toFixed(0) + "<small>%</small>") + tile("Aduan belum selesai", open + " <small>/ " + comp.length + "</small>") + tile("Aduan lewat", late) + "</div>";
+  h += '<section class="panel"><h3>Purata skor mengikut kriteria</h3><p class="hint">Skala 1 hingga 5</p><div class="stat-row" style="display:flex;flex-wrap:wrap;gap:8px">' +
+    CRIT.map(([k, l]) => `<span class="pill ${tone(avg(k))}">${esc(l)}: ${avg(k).toFixed(2)}</span>`).join("") + "</div></section>";
+  $("#kpi").innerHTML = h;
+}
+function renderFilters() {
+  const c = complaints();
+  const o = [["all", `Semua (${rows.length})`], ["complaints", `Aduan (${c.length})`]];
+  STATUSES.forEach((s) => o.push([s, `${s} (${c.filter((r) => statusOf(r) === s).length})`]));
+  $("#filters").innerHTML = o.map(([v, l]) => `<button type="button" data-f="${esc(v)}" aria-pressed="${filter === v}">${esc(l)}</button>`).join("");
+}
+const field = (id, label, val, type, full) => `<label class="f${full ? " full" : ""}" for="${id}"><span>${label}</span>` +
+  (type === "area" ? `<textarea id="${id}">${esc(val)}</textarea>` : `<input id="${id}" type="${type || "text"}" value="${esc(val)}">`) + "</label>";
+
+function recHtml(r) {
+  const st = statusOf(r), d = created(r);
+  let tags = `<span class="pill ${tone(r.rOverall)}">Keseluruhan ${r.rOverall}/5</span>`;
+  if (r.hasComplaint) tags += `<span class="pill ${stTone(st)}">${st}</span>`;
+  if (r.hasComplaint && st !== "Closed" && r.targetDate && r.targetDate < today()) tags += '<span class="pill bad">Lewat</span>';
+  const rt = CRIT.map(([k, l]) => `<dt>${esc(l)}</dt><dd>${r[k]} &ndash; ${esc(LABELS[r[k]] || "")}</dd>`).join("");
+  let o = `<details class="rec" data-id="${esc(r.id)}"${openId === r.id ? " open" : ""}><summary><div><div class="who">${esc(r.name)}${r.company ? " &middot; " + esc(r.company) : ""}</div>` +
+    `<div class="meta">${fmtDate(r.feedbackDate)}${r.ref ? " &middot; Rujukan " + esc(r.ref) : ""}${d ? " &middot; dihantar " + d.toLocaleString("ms-MY") : ""}</div></div><div class="tags">${tags}</div></summary><div class="body">`;
+  o += `<dl><dt>Telefon</dt><dd>${esc(r.phone || "-")}</dd><dt>E-mel</dt><dd>${esc(r.email || "-")}</dd></dl>`;
+  o += `<div class="label-up">Penilaian</div><dl>${rt}</dl>`;
+  if (r.comment) o += `<div class="label-up">Komen pelanggan</div><p>${esc(r.comment)}</p>`;
+  if (r.hasComplaint) {
+    const p = "m-" + r.id + "-";
+    o += `<hr><h3>Customer Complaint Record</h3><dl><dt>Complaint Category</dt><dd>${esc(CATS[r.category] || "-")}</dd><dt>Date Complaint Received</dt><dd>${fmtDate(r.receivedDate)}</dd></dl>` +
+      `<div class="label-up">Complaint Description</div><p>${esc(r.description)}</p><div class="grid" style="margin-top:10px">` +
+      field(p + "pic", "Person in Charge", r.pic) +
+      `<label class="f" for="${p}status"><span>Complaint Status</span><select id="${p}status">${STATUSES.map((s) => `<option${st === s ? " selected" : ""}>${s}</option>`).join("")}</select></label>` +
+      field(p + "root", "Root Cause", r.rootCause, "area", true) + field(p + "corr", "Corrective Action", r.corrective, "area", true) +
+      field(p + "prev", "Preventive Action", r.preventive, "area", true) + field(p + "target", "Target Resolution Date", r.targetDate, "date") +
+      field(p + "actual", "Actual Resolution Date", r.actualDate, "date") + "</div>";
+  }
+  o += `<div class="actions"><span data-slot="${esc(r.id)}" role="status"></span>` +
+    (r.hasComplaint ? `<button class="primary" data-save="${esc(r.id)}" type="button">Simpan rekod aduan</button>` : "") +
+    `<button class="danger" data-del="${esc(r.id)}" type="button">Padam rekod</button></div></div></details>`;
+  return o;
+}
+function renderList() {
+  renderFilters();
+  let list = rows;
+  if (filter === "complaints") list = complaints();
+  else if (STATUSES.includes(filter)) list = rows.filter((r) => statusOf(r) === filter);
+  $("#list").innerHTML = list.length ? list.map(recHtml).join("") :
+    `<div class="empty">${rows.length ? "Tiada rekod untuk tapisan ini." : "Belum ada maklum balas. Rekod akan muncul di sini sebaik sahaja pelanggan menghantar borang."}</div>`;
+}
+function render() {
+  const a = document.activeElement;
+  if (a && $("#list").contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) { pending = true; return; }
+  pending = false; renderKpi(); renderList();
+}
+const slot = (id, cls, text) => { const s = document.querySelector(`[data-slot="${id}"]`); if (s) s.innerHTML = `<span class="msg ${cls}" style="margin:0">${esc(text)}</span>`; };
+
+$("#filters").addEventListener("click", (e) => { const b = e.target.closest("button[data-f]"); if (b) { filter = b.dataset.f; renderList(); } });
+$("#list").addEventListener("toggle", (e) => { const x = e.target; if (x.classList && x.classList.contains("rec") && x.open) openId = x.dataset.id; }, true);
+$("#list").addEventListener("focusout", () => setTimeout(() => { if (pending) render(); }, 150));
+
+let armed = null;
+$("#list").addEventListener("click", async (e) => {
+  const s = e.target.closest("[data-save]"), d = e.target.closest("[data-del]");
+  if (s) {
+    const id = s.dataset.save, p = "m-" + id + "-", v = (x) => document.getElementById(p + x).value.trim();
+    const data = { pic: v("pic"), status: document.getElementById(p + "status").value, rootCause: v("root"), corrective: v("corr"), preventive: v("prev"), targetDate: v("target"), actualDate: v("actual") };
+    if (data.status === "Closed" && !data.actualDate) data.actualDate = today();
+    slot(id, "info", "Menyimpan...");
+    try { await updateDoc(doc(db, "feedback", id), data); openId = id; slot(id, "ok", "Disimpan"); }
+    catch (err) { slot(id, "err", "Gagal disimpan. Cuba lagi."); }
+  } else if (d) {
+    const id = d.dataset.del;
+    if (armed !== id) { armed = id; d.textContent = "Tekan sekali lagi untuk padam"; setTimeout(() => { if (armed === id) { armed = null; d.textContent = "Padam rekod"; } }, 4000); return; }
+    armed = null;
+    try { await deleteDoc(doc(db, "feedback", id)); } catch (err) { slot(id, "err", "Gagal dipadam."); }
+  }
+});
+
+/* ---------- CSV ---------- */
+$("#csv").addEventListener("click", () => {
+  const head = ["Tarikh Maklum Balas", "Nama", "Syarikat", "Telefon", "E-mel", "No. Rujukan", ...CRIT.map((c) => c[1]), "Komen", "Aduan", "Kategori", "Keterangan Aduan", "Tarikh Aduan Diterima",
+    "Person in Charge", "Root Cause", "Corrective Action", "Preventive Action", "Target Resolution Date", "Actual Resolution Date", "Status"];
+  const q = (s) => { s = String(s == null ? "" : s); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+  const lines = [head.map(q).join(",")].concat(rows.map((r) => [r.feedbackDate, r.name, r.company, r.phone, r.email, r.ref, ...CRIT.map((c) => r[c[0]]), r.comment,
+    r.hasComplaint ? "Ya" : "Tidak", CATS[r.category] || "", r.description, r.receivedDate, r.pic, r.rootCause, r.corrective, r.preventive, r.targetDate, r.actualDate, statusOf(r)].map(q).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
+  a.download = "maklum-balas-pelanggan-" + today() + ".csv"; a.click(); URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Borang Maklum Balas Pelanggan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="label-up">Customer Complaint &amp; Satisfaction KPI</div>
+      <h1 data-i18n="title"></h1>
+      <p class="sub" data-i18n="lead"></p>
+    </div>
+    <div class="seg" id="lang" role="group" aria-label="Bahasa / Language">
+      <button type="button" data-l="ms" aria-pressed="true">BM</button>
+      <button type="button" data-l="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <form id="form" novalidate>
+    <section class="panel">
+      <h2 data-i18n="s1"></h2>
+      <p class="hint" data-i18n="hint_req"></p>
+      <div class="grid">
+        <label class="f" for="c-name"><span><span data-i18n="c_name"></span> <span class="req">*</span></span><input id="c-name" type="text" autocomplete="name" maxlength="200"></label>
+        <label class="f" for="c-company"><span data-i18n="c_company"></span><input id="c-company" type="text" autocomplete="organization" maxlength="200"></label>
+        <label class="f" for="c-phone"><span data-i18n="c_phone"></span><input id="c-phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="50"></label>
+        <label class="f" for="c-email"><span data-i18n="c_email"></span><input id="c-email" type="email" autocomplete="email" maxlength="200"></label>
+        <label class="f" for="c-date"><span><span data-i18n="c_date"></span> <span class="req">*</span></span><input id="c-date" type="date"></label>
+        <label class="f" for="c-ref"><span data-i18n="c_ref"></span><input id="c-ref" type="text" maxlength="100"></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="s2"></h2>
+      <p class="hint" data-i18n="s2_hint"></p>
+      <div class="scale" id="scale" aria-hidden="true"></div>
+      <div id="rates"></div>
+      <label class="f full" for="c-comment" style="margin-top:12px"><span data-i18n="c_comment"></span><textarea id="c-comment" maxlength="2000"></textarea></label>
+    </section>
+
+    <section class="panel">
+      <h2 data-i18n="s3"></h2>
+      <p class="hint" data-i18n="s3_hint"></p>
+      <label class="toggle" for="c-has"><input id="c-has" type="checkbox"> <span data-i18n="c_has"></span></label>
+      <div id="complaint-fields" class="grid" style="margin-top:14px" hidden>
+        <label class="f" for="c-cat"><span data-i18n="c_cat"></span><select id="c-cat"></select></label>
+        <label class="f" for="c-recv"><span data-i18n="c_recv"></span><input id="c-recv" type="date"></label>
+        <label class="f full" for="c-desc"><span><span data-i18n="c_desc"></span> <span class="req">*</span></span><textarea id="c-desc" maxlength="3000"></textarea></label>
+      </div>
+    </section>
+
+    <div class="hp" aria-hidden="true"><label>Website <input id="c-site" type="text" tabindex="-1" autocomplete="off"></label></div>
+    <div id="form-msg" role="status" aria-live="polite"></div>
+    <div class="actions"><button class="primary" id="submit" type="submit" data-i18n="submit"></button></div>
+  </form>
+
+  <section class="panel" id="thanks" hidden>
+    <h2 data-i18n="thanks_t"></h2>
+    <p class="hint" data-i18n="thanks_p"></p>
+    <div class="actions"><button id="again" type="button" data-i18n="again"></button></div>
+  </section>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const I = {
+  ms: {
+    title: "Borang Maklum Balas Pelanggan",
+    lead: "Bantu kami menilai perkhidmatan yang diberikan pada sesi ini. Mengisi borang ini mengambil masa kira-kira dua minit.",
+    s1: "1. Maklumat Pelanggan", hint_req: "Ruang bertanda * wajib diisi.",
+    c_name: "Nama Pelanggan", c_company: "Syarikat / Jabatan", c_phone: "No. Telefon", c_email: "E-mel", c_date: "Tarikh Maklum Balas", c_ref: "No. Invois / Rujukan",
+    s2: "2. Tinjauan Kepuasan Pelanggan", s2_hint: "Sila nilai tahap kepuasan anda bagi setiap kriteria.",
+    sc5: "Sangat Berpuas Hati", sc4: "Berpuas Hati", sc3: "Neutral", sc2: "Tidak Berpuas Hati", sc1: "Sangat Tidak Berpuas Hati",
+    cr_quality: "Kualiti Produk / Perkhidmatan", cr_friendliness: "Kemesraan Kakitangan", cr_professionalism: "Profesionalisme Kakitangan",
+    cr_response: "Masa Respons", cr_resolution: "Penyelesaian Masalah", cr_overall: "Kepuasan Pelanggan Keseluruhan",
+    c_comment: "Komen atau cadangan (pilihan)",
+    s3: "3. Aduan", s3_hint: "Isi bahagian ini hanya jika anda ingin mengemukakan aduan. Pasukan kami akan menyemak dan mengambil tindakan.",
+    c_has: "Saya ingin membuat aduan", c_cat: "Kategori Aduan", cat_pick: "Pilih kategori", c_recv: "Tarikh Aduan Diterima", c_desc: "Keterangan Aduan",
+    cat_quality: "Kualiti Produk / Perkhidmatan", cat_staff: "Layanan Kakitangan", cat_response: "Masa Respons", cat_resolution: "Penyelesaian Masalah", cat_invoice: "Invois / Bil", cat_other: "Lain-lain",
+    submit: "Hantar Maklum Balas", sending: "Menghantar...",
+    thanks_t: "Terima kasih atas maklum balas anda", thanks_p: "Maklum balas anda telah diterima. Jika anda mengemukakan aduan, pasukan kami akan menghubungi anda.", again: "Hantar maklum balas lain",
+    err_req: "Sila lengkapkan nama, tarikh dan semua enam penilaian.", err_req_c: "Sila lengkapkan nama, tarikh, semua enam penilaian dan keterangan aduan.",
+    err_cfg: "Borang belum disambung ke pangkalan data. Pemilik perlu mengisi firebase-config.js.",
+    err_net: "Maklum balas belum dapat dihantar. Semak sambungan internet dan cuba lagi."
+  },
+  en: {
+    title: "Customer Feedback Form",
+    lead: "Help us evaluate the service you received in this session. This form takes about two minutes to complete.",
+    s1: "1. Customer Information", hint_req: "Fields marked * are required.",
+    c_name: "Customer Name", c_company: "Company / Department", c_phone: "Contact Number", c_email: "Email", c_date: "Date of Feedback", c_ref: "Invoice / Reference No.",
+    s2: "2. Customer Satisfaction Survey", s2_hint: "Please rate your satisfaction level for each criterion.",
+    sc5: "Very Satisfied", sc4: "Satisfied", sc3: "Neutral", sc2: "Dissatisfied", sc1: "Very Dissatisfied",
+    cr_quality: "Product / Service Quality", cr_friendliness: "Staff Friendliness", cr_professionalism: "Staff Professionalism",
+    cr_response: "Response Time", cr_resolution: "Problem Resolution", cr_overall: "Overall Customer Satisfaction",
+    c_comment: "Comments or suggestions (optional)",
+    s3: "3. Customer Complaint", s3_hint: "Complete this section only if you wish to raise a complaint. Our team will review it and take action.",
+    c_has: "I would like to make a complaint", c_cat: "Complaint Category", cat_pick: "Select a category", c_recv: "Date Complaint Received", c_desc: "Complaint Description",
+    cat_quality: "Product / Service Quality", cat_staff: "Staff Conduct", cat_response: "Response Time", cat_resolution: "Problem Resolution", cat_invoice: "Invoice / Billing", cat_other: "Other",
+    submit: "Submit Feedback", sending: "Submitting...",
+    thanks_t: "Thank you for your feedback", thanks_p: "Your feedback has been received. If you raised a complaint, our team will contact you.", again: "Submit another response",
+    err_req: "Please complete your name, the date and all six ratings.", err_req_c: "Please complete your name, the date, all six ratings and the complaint description.",
+    err_cfg: "The form is not connected to the database yet. The owner needs to fill in firebase-config.js.",
+    err_net: "Your feedback could not be sent. Check your internet connection and try again."
+  }
+};
+const CRITERIA = ["quality", "friendliness", "professionalism", "response", "resolution", "overall"];
+const CATS = ["quality", "staff", "response", "resolution", "invoice", "other"];
+const FIELD = { quality: "rQuality", friendliness: "rFriendliness", professionalism: "rProfessionalism", response: "rResponse", resolution: "rResolution", overall: "rOverall" };
+
+let lang = "ms";
+try { const s = localStorage.getItem("kpi-lang"); if (s === "ms" || s === "en") lang = s; } catch (e) {}
+const t = (k) => I[lang][k] || I.ms[k] || k;
+const $ = (s) => document.querySelector(s);
+const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+const ratings = {};
+
+const configured = !String(firebaseConfig.apiKey).startsWith("ISI_");
+let db = null;
+if (configured) db = getFirestore(initializeApp(firebaseConfig));
+
+function buildRates() {
+  $("#rates").innerHTML = CRITERIA.map((k) => {
+    let b = "";
+    for (let i = 1; i <= 5; i++) b += `<label><input type="radio" name="r-${k}" value="${i}"><span>${i}</span></label>`;
+    return `<fieldset class="rate" id="rate-${k}"><legend><span data-i18n="cr_${k}"></span> <span class="req">*</span></legend><div class="row"><div class="btns">${b}</div><span class="says" id="says-${k}"></span></div></fieldset>`;
+  }).join("");
+  CRITERIA.forEach((k) => document.querySelectorAll(`input[name="r-${k}"]`).forEach((r) => r.addEventListener("change", () => {
+    ratings[k] = Number(r.value); updateSays(); $("#rate-" + k).classList.remove("invalid");
+  })));
+}
+function updateSays() { CRITERIA.forEach((k) => { $("#says-" + k).textContent = ratings[k] ? t("sc" + ratings[k]) : ""; }); }
+function buildScale() { $("#scale").innerHTML = [5, 4, 3, 2, 1].map((n) => `<span class="chip"><b>${n}</b>${t("sc" + n)}</span>`).join(""); }
+function buildCats() {
+  const cur = $("#c-cat").value;
+  $("#c-cat").innerHTML = `<option value="">${t("cat_pick")}</option>` + CATS.map((c) => `<option value="${c}">${t("cat_" + c)}</option>`).join("");
+  $("#c-cat").value = cur;
+}
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t("title");
+  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll("#lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.l === lang)));
+  buildScale(); buildCats(); updateSays();
+}
+function resetForm() {
+  $("#form").reset(); for (const k in ratings) delete ratings[k];
+  updateSays(); $("#c-date").value = today(); $("#c-recv").value = today();
+  $("#complaint-fields").hidden = true; $("#form-msg").innerHTML = "";
+}
+function showErr(k) { $("#form-msg").innerHTML = `<div class="msg err">${t(k)}</div>`; }
+
+buildRates(); resetForm(); applyLang();
+if (!configured) $("#form-msg").innerHTML = `<div class="msg info">${t("err_cfg")}</div>`;
+
+$("#lang").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-l]"); if (!b || b.dataset.l === lang) return;
+  lang = b.dataset.l; try { localStorage.setItem("kpi-lang", lang); } catch (x) {}
+  $("#form-msg").innerHTML = ""; applyLang();
+});
+$("#c-has").addEventListener("change", (e) => { $("#complaint-fields").hidden = !e.target.checked; });
+$("#again").addEventListener("click", () => { resetForm(); $("#form").hidden = false; $("#thanks").hidden = true; });
+
+$("#form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if ($("#c-site").value) return; // pancing spam: manusia tidak nampak medan ini
+  const bad = [];
+  ["#c-name", "#c-date"].forEach((s) => { const el = $(s); const ok = el.value.trim(); el.classList.toggle("invalid", !ok); if (!ok) bad.push(el); });
+  CRITERIA.forEach((k) => { const miss = !ratings[k]; $("#rate-" + k).classList.toggle("invalid", miss); if (miss) bad.push($("#rate-" + k)); });
+  const has = $("#c-has").checked;
+  const noDesc = has && !$("#c-desc").value.trim();
+  $("#c-desc").classList.toggle("invalid", noDesc); if (noDesc) bad.push($("#c-desc"));
+  if (bad.length) { showErr(has ? "err_req_c" : "err_req"); bad[0].scrollIntoView({ block: "center" }); return; }
+  if (!db) { showErr("err_cfg"); return; }
+
+  const rec = {
+    name: $("#c-name").value.trim(), company: $("#c-company").value.trim(), phone: $("#c-phone").value.trim(),
+    email: $("#c-email").value.trim(), feedbackDate: $("#c-date").value, ref: $("#c-ref").value.trim(),
+    comment: $("#c-comment").value.trim(), hasComplaint: has,
+    category: has ? $("#c-cat").value : "", description: has ? $("#c-desc").value.trim() : "", receivedDate: has ? $("#c-recv").value : "",
+    lang, createdAt: serverTimestamp()
+  };
+  CRITERIA.forEach((k) => { rec[FIELD[k]] = ratings[k]; });
+
+  const btn = $("#submit"); btn.disabled = true; btn.textContent = t("sending");
+  try {
+    await addDoc(collection(db, "feedback"), rec);
+    $("#form").hidden = true; $("#thanks").hidden = false; window.scrollTo(0, 0);
+  } catch (err) {
+    showErr("err_net");
+  } finally {
+    btn.disabled = false; btn.textContent = t("submit");
+  }
+});
+</script>
+</body>
+</html>

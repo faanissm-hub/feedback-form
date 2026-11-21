@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // LANGKAH 5: gantikan UID_ANDA dengan User UID akaun owner dari Firebase Authentication.
+    function isOwner() {
+      return request.auth != null && request.auth.uid == "UID_ANDA";
+    }
+
+    function validRating(v) {
+      return v is int && v >= 1 && v <= 5;
+    }
+
+    match /feedback/{id} {
+      // Sesiapa boleh HANTAR borang (create), tetapi tidak boleh baca, ubah atau padam.
+      allow create: if request.resource.data.keys().hasOnly([
+          'name', 'company', 'phone', 'email', 'feedbackDate', 'ref',
+          'rQuality', 'rFriendliness', 'rProfessionalism', 'rResponse', 'rResolution', 'rOverall',
+          'comment', 'hasComplaint', 'category', 'description', 'receivedDate', 'lang', 'createdAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && validRating(request.resource.data.rQuality)
+        && validRating(request.resource.data.rFriendliness)
+        && validRating(request.resource.data.rProfessionalism)
+        && validRating(request.resource.data.rResponse)
+        && validRating(request.resource.data.rResolution)
+        && validRating(request.resource.data.rOverall)
+        && request.resource.data.hasComplaint is bool
+        && request.resource.data.createdAt == request.time
+        && (!('comment' in request.resource.data) || request.resource.data.comment.size() <= 2000)
+        && (!('description' in request.resource.data) || request.resource.data.description.size() <= 3000);
+
+      // Hanya owner boleh baca, kemas kini dan padam.
+      allow read, update, delete: if isOwner();
+    }
+  }
+}
