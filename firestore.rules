@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     match /feedback/{id} {
-      // Sesiapa boleh HANTAR borang (create), tetapi tidak boleh baca, ubah atau padam.
+
       allow create: if request.resource.data.keys().hasOnly([
           'name', 'company', 'phone', 'email', 'feedbackDate', 'ref',
           'rQuality', 'rFriendliness', 'rProfessionalism', 'rResponse', 'rResolution', 'rOverall',
@@ -31,7 +31,6 @@ service cloud.firestore {
         && (!('comment' in request.resource.data) || request.resource.data.comment.size() <= 2000)
         && (!('description' in request.resource.data) || request.resource.data.description.size() <= 3000);
 
-      // Hanya owner boleh baca, kemas kini dan padam.
       allow read, update, delete: if isOwner();
     }
   }
